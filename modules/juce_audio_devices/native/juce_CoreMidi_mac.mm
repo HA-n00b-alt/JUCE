@@ -1924,9 +1924,12 @@ struct CoreMidiHelpers
             consumers.call ([&] (auto& c) { c.consume (b, e, time); });
         }
 
-        Connection connection;
         WaitFreeListeners<ump::Consumer> consumers;
         ReceiverToUse receiver { *this };
+
+        // Declared last so that it is destroyed first: disposing the port waits for in-flight
+        // CoreMIDI callbacks, which use consumers and receiver.
+        Connection connection;
 
        #if JUCE_COREMIDI_UMP_ENDPOINT_CAN_BE_BUILT
         JUCE_BEGIN_IGNORE_WARNINGS_GCC_LIKE ("-Wunguarded-availability-new")

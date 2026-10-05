@@ -537,10 +537,31 @@ struct CoreMidiHelpers
 
                 MIDIClientRef midiClientRef{};
 
-                if (! JUCE_CHECK_ERROR (MIDIClientCreate (cfName.get(), systemChangeCallback, nullptr, &midiClientRef)))
-                    return {};
+                // The client is made once per process, so a failure here leaves the process without MIDI
+                // until it restarts. MIDIClientCreate fails while the MIDI service is still starting, or
+                // while another client is being torn down; it succeeds a moment later, so retry for up
+                // to 2 s before giving up (midi-librarian #217).
+                constexpr int clientCreateAttempts = 20;
+                OSStatus status = noErr;
 
-                return midiClientRef;
+                for (int attempt = 1; attempt <= clientCreateAttempts; ++attempt)
+                {
+                    status = MIDIClientCreate (cfName.get(), systemChangeCallback, nullptr, &midiClientRef);
+
+                    if (status == noErr)
+                    {
+                        if (attempt > 1)
+                            Logger::writeToLog ("CoreMIDI: the MIDI client was created on attempt " + String (attempt));
+
+                        return midiClientRef;
+                    }
+
+                    if (attempt < clientCreateAttempts)
+                        Thread::sleep (100);
+                }
+
+                JUCE_CHECK_ERROR (status); // logs the last attempt's error
+                return {};
             });
 
             if (! clientRef.has_value())

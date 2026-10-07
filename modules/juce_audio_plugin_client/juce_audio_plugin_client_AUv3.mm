@@ -1919,7 +1919,6 @@ public:
                 if (auto* editor = processor.createEditorAndMakeActive())
                 {
                     preferredSize = editor->getBounds();
-                    editor->addComponentListener (&editorSizeListener);
 
                     JUCE_IOS_MAC_VIEW* view = [[[JUCE_IOS_MAC_VIEW alloc] initWithFrame: convertToCGRect (editor->getBounds())] autorelease];
                     [myself setView: view];
@@ -1957,13 +1956,7 @@ public:
                     if (holder->viewConfiguration != nullptr)
                         editor->hostMIDIControllerIsAvailable (holder->viewConfiguration->hostHasMIDIController);
 
-                    {
-                        // The host's own layout: the editor takes the view's size, and that is now the size
-                        // the plugin prefers, without asking the host for it again
-                        const ScopedValueSetter<bool> hostLayout (layingOutFromHost, true);
-                        editor->setBounds (convertToRectInt ([[myself view] bounds]));
-                        preferredSize = editor->getBounds();
-                    }
+                    editor->setBounds (convertToRectInt ([[myself view] bounds]));
 
                     if (JUCE_IOS_MAC_VIEW* peerView = [[[myself view] subviews] objectAtIndex: 0])
                     {
@@ -2003,22 +1996,6 @@ public:
     {
         return CGSizeMake (static_cast<float> (preferredSize.getWidth()),
                            static_cast<float> (preferredSize.getHeight()));
-    }
-
-    // The editor resized itself (a zoom, a size limit): ask the host for the new size. The preferred size was
-    // otherwise only read once, when the view loaded, so the host's window kept its old size around a smaller or
-    // larger editor (midi-librarian #408). Hosts observe preferredContentSize (KVO), Logic's out-of-process view
-    // included; the host's layout then sets the editor to the view's bounds in viewDidLayoutSubviews.
-    void editorResized (Component& editor)
-    {
-        const auto size = editor.getLocalBounds();
-
-        if (layingOutFromHost || size == preferredSize.withZeroOrigin())
-            return;
-
-        [myself willChangeValueForKey: @"preferredContentSize"];
-        preferredSize = size;
-        [myself didChangeValueForKey: @"preferredContentSize"];
     }
 
     //==============================================================================
@@ -2065,28 +2042,10 @@ private:
         AudioProcessorHolder::Ptr holder;
     };
 
-    // Hears the editor resize itself, until it is deleted (removeEditor, in the destructor)
-    struct EditorSizeListener final : public ComponentListener
-    {
-        explicit EditorSizeListener (JuceAUViewController& o) : owner (o) {}
-
-        void componentMovedOrResized (Component& editor, bool, bool wasResized) override
-        {
-            if (wasResized)
-                owner.editorResized (editor);
-        }
-
-        void componentBeingDeleted (Component& editor) override { editor.removeComponentListener (this); }
-
-        JuceAUViewController& owner;
-    };
-
     //==============================================================================
     AUViewController<AUAudioUnitFactory>* myself;
     LockedProcessorHolder processorHolder;
     Rectangle<int> preferredSize { 1, 1 };
-    EditorSizeListener editorSizeListener { *this };
-    bool layingOutFromHost = false;
 
     //==============================================================================
     AudioProcessor& getAudioProcessor() const noexcept       { return **processorHolder.get(); }

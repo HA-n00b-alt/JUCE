@@ -108,6 +108,30 @@ constexpr auto pluginWantsMidiInput =
 //==============================================================================
 using namespace juce;
 
+//==============================================================================
+// Diagnostic builds only: records what the host asks about the parameters, and what the wrapper answers.
+#if JUCE_AU_PARAMETER_TRACE
+ #ifndef JUCE_AU_PARAMETER_TRACE_FILE
+  #define JUCE_AU_PARAMETER_TRACE_FILE "Library/Logs/JUCE-AU-parameter-trace.log"
+ #endif
+
+static void auParameterTrace (const String& line)
+{
+    static FileLogger logger (File::getSpecialLocation (File::userHomeDirectory).getChildFile (JUCE_AU_PARAMETER_TRACE_FILE),
+                              "JUCE AU parameter trace", 0);
+    logger.logMessage (Time::getCurrentTime().toString (false, true, true, true) + " " + line);
+}
+
+static String auParameterTraceID (AudioUnitParameterID id)
+{
+    return "0x" + String::toHexString ((int) id).paddedLeft ('0', 8);
+}
+
+ #define JUCE_AU_TRACE(line) auParameterTrace (line)
+#else
+ #define JUCE_AU_TRACE(line) ((void) 0)
+#endif
+
 static Array<void*> activePlugins, activeUIs;
 
 static const AudioUnitPropertyID juceFilterObjectPropertyID = 0x1a45ffe9;
@@ -415,6 +439,10 @@ public:
                                      UInt32& outDataSize,
                                      bool& outWritable) override
     {
+        if (inID == kAudioUnitProperty_ParameterValueStrings)
+            JUCE_AU_TRACE ("GetPropertyInfo ParameterValueStrings scope=" + String ((int) inScope)
+                           + " element(id)=" + auParameterTraceID (inElement));
+
         if (inScope == kAudioUnitScope_Global)
         {
             switch (inID)
@@ -530,6 +558,10 @@ public:
                                  AudioUnitElement inElement,
                                  void* outData) override
     {
+        if (inID == kAudioUnitProperty_ParameterValueStrings)
+            JUCE_AU_TRACE ("GetProperty ParameterValueStrings scope=" + String ((int) inScope)
+                           + " element(id)=" + auParameterTraceID (inElement));
+
         if (inScope == kAudioUnitScope_Global)
         {
             switch (inID)
@@ -684,6 +716,8 @@ public:
                                 else
                                     pv->outValue = param->getValueForText (text) * getMaximumParameterValue (param);
 
+                                JUCE_AU_TRACE ("GetProperty ParameterValueFromString id=" + auParameterTraceID (pv->inParamID)
+                                               + " text=\"" + text + "\" -> " + String (pv->outValue));
                                 return noErr;
                             }
                         }
@@ -709,6 +743,8 @@ public:
 
                                 pv->outString = text.toCFString();
 
+                                JUCE_AU_TRACE ("GetProperty ParameterStringFromValue id=" + auParameterTraceID (pv->inParamID)
+                                               + " value=" + String (value) + " -> \"" + text + "\"");
                                 return noErr;
                             }
                         }
@@ -1116,10 +1152,20 @@ public:
                 jassert (outParameterInfo.defaultValue >= outParameterInfo.minValue
                       && outParameterInfo.defaultValue <= outParameterInfo.maxValue);
 
+                JUCE_AU_TRACE ("GetParameterInfo id=" + auParameterTraceID (inParameterID) + " name=\"" + name
+                               + "\" unit=" + String ((int) outParameterInfo.unit)
+                               + " flags=0x" + String::toHexString ((int) outParameterInfo.flags)
+                               + " min=" + String (outParameterInfo.minValue) + " max=" + String (outParameterInfo.maxValue)
+                               + " default=" + String (outParameterInfo.defaultValue)
+                               + " clump=" + String ((int) outParameterInfo.clumpID)
+                               + " index=" + String (param->getParameterIndex())
+                               + " versionHint=" + String (param->getVersionHint()));
                 return noErr;
             }
         }
 
+        JUCE_AU_TRACE ("GetParameterInfo id=" + auParameterTraceID (inParameterID) + " scope=" + String ((int) inScope)
+                       + " -> kAudioUnitErr_InvalidParameter");
         return kAudioUnitErr_InvalidParameter;
     }
 
@@ -1128,7 +1174,10 @@ public:
                                               CFArrayRef *outStrings) override
     {
         if (outStrings == nullptr)
+        {
+            JUCE_AU_TRACE ("GetParameterValueStrings id=" + auParameterTraceID (inParameterID) + " size query (no array)");
             return noErr;
+        }
 
         if (inScope == kAudioUnitScope_Global && juceFilter != nullptr)
         {
@@ -1145,12 +1194,24 @@ public:
                                                      valueStrings->size(),
                                                      nullptr);
 
+                       #if JUCE_AU_PARAMETER_TRACE
+                        StringArray texts;
+
+                        for (auto* s : *valueStrings)
+                            texts.add (String::fromCFString (s));
+
+                        auParameterTrace ("GetParameterValueStrings id=" + auParameterTraceID (inParameterID)
+                                          + " index=" + String (index) + " count=" + String (valueStrings->size())
+                                          + " -> [" + texts.joinIntoString (" | ") + "]");
+                       #endif
                         return noErr;
                     }
                 }
             }
         }
 
+        JUCE_AU_TRACE ("GetParameterValueStrings id=" + auParameterTraceID (inParameterID) + " scope=" + String ((int) inScope)
+                       + " -> kAudioUnitErr_InvalidParameter");
         return kAudioUnitErr_InvalidParameter;
     }
 
@@ -2360,6 +2421,14 @@ private:
 
         std::copy (cachedParameterList.begin(), cachedParameterList.end(), outParameterList);
 
+       #if JUCE_AU_PARAMETER_TRACE
+        StringArray ids;
+
+        for (auto id : cachedParameterList)
+            ids.add (auParameterTraceID (id));
+
+        auParameterTrace ("GetParameterList -> [" + ids.joinIntoString (", ") + "]");
+       #endif
         return noErr;
     }
 

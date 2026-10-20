@@ -206,6 +206,18 @@ namespace juce::universal_midi_packets
             });
         }
 
+        /** As above, and also calls `partialFn` with the bytes so far of a multi-packet sysex message
+            as each of its packets arrives (see SingleGroupMidi1ToBytestreamTranslator::dispatch).
+        */
+        template <typename Fn, typename PartialFn>
+        void convert (const View& v, double time, Fn&& fn, PartialFn&& partialFn)
+        {
+            Conversion::midi2ToMidi1DefaultTranslation (v, [&] (const View& midi1)
+            {
+                translator.dispatch (midi1, time, fn, partialFn);
+            });
+        }
+
         void reset() { translator.reset(); }
 
         SingleGroupMidi1ToBytestreamTranslator translator;

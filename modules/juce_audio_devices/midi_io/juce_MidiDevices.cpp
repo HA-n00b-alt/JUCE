@@ -175,6 +175,16 @@ private:
                 {
                     l.handleIncomingMidiMessage (owner, msg);
                 });
+            },
+            [this] (Span<const std::byte> soFar, double t)
+            {
+                callbacks.call ([&] (MidiInputCallback& l)
+                {
+                    l.handlePartialSysexMessage (owner,
+                                                 unalignedPointerCast<const uint8*> (soFar.data()),
+                                                 (int) soFar.size(),
+                                                 t);
+                });
             });
         }
     }

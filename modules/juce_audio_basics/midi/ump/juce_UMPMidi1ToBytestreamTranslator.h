@@ -255,6 +255,16 @@ public:
     template <typename MessageCallback>
     void dispatch (const View& packet, double time, MessageCallback&& callback)
     {
+        dispatch (packet, time, std::forward<MessageCallback> (callback), [] (Span<const std::byte>, double) {});
+    }
+
+    /** As above, and also calls `partialCallback` each time a packet of a multi-packet sysex message
+        arrives, with all of that message's bytes so far (starting with 0xf0, not yet ending with 0xf7)
+        and the message's timestamp. The bytes are only valid during the call.
+    */
+    template <typename MessageCallback, typename PartialCallback>
+    void dispatch (const View& packet, double time, MessageCallback&& callback, PartialCallback&& partialCallback)
+    {
         extractor.dispatch (packet, time, [&] (SysexExtractorCallbackKind kind, Span<const std::byte> bytes)
         {
             switch (kind)
@@ -269,6 +279,7 @@ public:
                         pendingSysExTime = time;
 
                     pendingSysExData.insert (pendingSysExData.end(), bytes.begin(), bytes.end());
+                    partialCallback (Span<const std::byte> (pendingSysExData), pendingSysExTime);
                     return;
                 }
 
